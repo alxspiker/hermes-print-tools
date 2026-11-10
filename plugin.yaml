@@ -1,0 +1,22 @@
+name: print-tools
+version: "1.0.0"
+manifest_version: 2
+api_version: 1
+description: "Printer-independent CUPS printing for Hermes: files, text, designed letters, and queue status."
+author: "Alx Spiker"
+license: MIT
+homepage: https://github.com/alxspiker/hermes-print-tools
+tags: [printing, cups, linux, documents, local]
+python_dependencies:
+  - "Pillow>=11.0,<13"
+config_schema:
+  default_printer:
+    type: str
+    default: ""
+    label: "Default printer queue"
+    description: "Optional exact CUPS queue name. Leave blank to use the system default."
+provides_tools:
+  - printer_status
+  - print_file
+  - print_text
+  - print_letter
