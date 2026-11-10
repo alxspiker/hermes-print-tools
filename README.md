@@ -59,7 +59,7 @@ The plugin intentionally has **no self-updater**.
 
 **Host file reads:** The print_file tool reads a user-specified path and only permits files inside the current user's resolved home directory or the system temporary directory. Symlinks resolving outside these areas are rejected. The size limit is 20 MiB; converted documents may contain up to 20 pages. print_text and print_letter work only from strings passed in their tool arguments.
 
-**Host commands:** The plugin invokes CUPS lpstat, CUPS lp, Ghostscript gs with safer mode, CUPS texttopdf and the current Python interpreter to generate PDF/JPEG pages. Font lookup may invoke fc-match. Commands are passed as argument arrays without shell execution.
+**Host commands:** The plugin invokes CUPS lpstat, CUPS lp, Ghostscript gs with safer mode, CUPS texttopdf and the current Python interpreter to generate PDF/JPEG pages. Font lookup may invoke fc-match. Commands are passed as argument arrays without shell execution, with an explicit, minimal child environment (trusted system PATH, account HOME, and UTF-8 LANG). No API keys or other ambient Hermes environment variables are forwarded.
 
 **Network:** CUPS may send jobs to whichever local or network printer the user has configured, including IPP endpoints. The plugin does not make independent external HTTP requests, gather usage data, or send telemetry. No credentials are accessed or stored.
 

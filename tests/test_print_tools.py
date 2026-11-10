@@ -1,6 +1,10 @@
 """No physical print jobs are submitted by this test suite."""
 import importlib.util
+import json
+import os
+import pwd
 import subprocess
+import sys
 from pathlib import Path
 from unittest import TestCase, mock
 
@@ -103,8 +107,68 @@ class TestQueues(TestCase):
             self.assertEqual(entry["toolset"], "print-tools")
             self.assertEqual(entry["schema"]["name"], name)
 
+    def test_real_child_process_does_not_inherit_credentials(self):
+        """Execute a harmless Python child, never a CUPS or printing command."""
+        injected = {
+            "OPENAI_API_KEY": "FAKE-SECRET-DO-NOT-FORWARD",
+            "ANTHROPIC_API_KEY": "FAKE-SECOND-SECRET",
+            "CUPS_SERVER": "malicious-host.example",
+            "PATH": "/tmp/unsafe-test-bin",
+            "HOME": "/tmp/unsafe-test-home",
+        }
+        with mock.patch.dict(os.environ, injected):
+            result = plugin._run([
+                sys.executable, "-c",
+                "import json,os; print(json.dumps(dict(os.environ)))",
+            ])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            child = json.loads(result.stdout)
+        self.assertEqual(set(child), {"PATH", "HOME", "LANG"})
+        self.assertEqual(child["HOME"], pwd.getpwuid(os.getuid()).pw_dir)
+        self.assertEqual(child["PATH"], plugin._SAFE_PATH)
+        for secret in injected.values():
+            self.assertNotIn(secret, child.values())
+
+    def test_command_lookup_rejects_inherited_path(self):
+        with mock.patch.dict(os.environ, {"PATH": "/tmp/unsafe-test-bin"}):
+            with mock.patch.object(plugin.shutil, "which", return_value="/usr/bin/lp") as which:
+                self.assertEqual(plugin._binary("lp"), "/usr/bin/lp")
+            which.assert_called_once_with("lp", path=plugin._SAFE_PATH)
+
+    def test_letter_pipeline_renders_without_touching_printer(self):
+        """Real Pillow renderer; only print submission and status are mocked."""
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "FAKE-SECRET"}), \
+             mock.patch.object(plugin, "_resolve_printer", return_value="Office"), \
+             mock.patch.object(plugin, "_print_jpeg", return_value="Office-42") as submit, \
+             mock.patch.object(plugin, "_printer_status", return_value="mock queue"):
+            outcome = plugin._handle_print_letter({
+                "title": "Security regression test",
+                "body": "First paragraph tests layout.\n\nSecond paragraph tests rendering.",
+                "signature": "Hermes",
+                "style": "classic",
+            })
+        self.assertIn("Office-42", outcome)
+        submit.assert_called_once()
+
 
 class TestRenderer(TestCase):
+    def test_fontconfig_gets_minimal_environment(self):
+        spec = importlib.util.spec_from_file_location("renderer_for_env_test", ROOT / "letter_renderer.py")
+        renderer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(renderer)
+        fake = subprocess.CompletedProcess([], 0,
+                                           "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf\n", "")
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "FAKE-SECRET"}), \
+             mock.patch.object(renderer.shutil, "which", return_value="/usr/bin/fc-match") as which, \
+             mock.patch.object(renderer.subprocess, "run", return_value=fake) as run:
+            renderer.font("sans", 39)
+        run.assert_called_once()
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(set(env), {"PATH", "HOME", "LANG"})
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertEqual(env["HOME"], pwd.getpwuid(os.getuid()).pw_dir)
+        which.assert_called_once_with("fc-match", path=renderer._SAFE_PATH)
+
     def test_valid_and_overlong_letter(self):
         from PIL import Image
         from tempfile import TemporaryDirectory

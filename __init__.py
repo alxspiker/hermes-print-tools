@@ -6,6 +6,8 @@ The plugin never runs automatically or updates itself.
 
 import json
 import logging
+import os
+import pwd
 import re
 import shutil
 import subprocess
@@ -19,6 +21,7 @@ _MAX_COPIES = 5
 _MAX_TEXT_CHARS = 5000
 _MAX_FILE_BYTES = 20 * 1024 * 1024
 _MAX_PAGES = 20
+_SAFE_PATH = "/usr/local/bin:/usr/bin:/bin"
 _config_getter = None
 
 
@@ -102,13 +105,22 @@ def register(ctx):
                           handler=handler)
 
 
+def _child_env():
+    """Do not pass Hermes credentials or runtime controls to child processes."""
+    return {
+        "PATH": _SAFE_PATH,
+        "HOME": pwd.getpwuid(os.getuid()).pw_dir,
+        "LANG": "C.UTF-8",
+    }
+
+
 def _run(args, input_bytes=None, timeout=60):
     return subprocess.run(args, input=input_bytes, capture_output=True,
-                          timeout=timeout, check=False)
+                          timeout=timeout, check=False, env=_child_env())
 
 
 def _binary(name):
-    executable = shutil.which(name)
+    executable = shutil.which(name, path=_SAFE_PATH)
     if not executable:
         raise RuntimeError(
             f"{name} not installed; CUPS clients and Ghostscript are required."

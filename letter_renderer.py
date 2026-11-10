@@ -6,6 +6,8 @@ A JPEG for any CUPS printer and a matching valid PDF are generated together.
 """
 import argparse
 import json
+import os
+import pwd
 import re
 import sys
 import subprocess
@@ -44,16 +46,27 @@ ROSE = "#ae2955"
 PURPLE = "#714679"
 GOLD = "#b8873b"
 FAINT = "#ebdce4"
+_SAFE_PATH = "/usr/local/bin:/usr/bin:/bin"
+
+
+def _child_env():
+    """Never forward Hermes' ambient environment to fontconfig."""
+    return {
+        "PATH": _SAFE_PATH,
+        "HOME": pwd.getpwuid(os.getuid()).pw_dir,
+        "LANG": "C.UTF-8",
+    }
 
 
 @lru_cache(maxsize=128)
 def font(name, size):
     candidates = [FONT_FALLBACKS[name]]
-    fc_match = shutil.which("fc-match")
+    fc_match = shutil.which("fc-match", path=_SAFE_PATH)
     if fc_match:
         result = subprocess.run(
             [fc_match, "-f", "%{file}\\n", FONT_FAMILIES[name]],
-            capture_output=True, text=True, timeout=5, check=False
+            capture_output=True, text=True, timeout=5, check=False,
+            env=_child_env()
         )
         if result.returncode == 0:
             lines = result.stdout.splitlines()
